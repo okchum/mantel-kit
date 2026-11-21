@@ -26,7 +26,7 @@ jobs:
         run: go vet ./...
       - name: test
         run: go test -race ./...
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           # Pinned: a new release adds checks and would fail unchanged code.
           version: v2.15.0
