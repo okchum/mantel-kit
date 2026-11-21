@@ -14,9 +14,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      # go.mod's "go" line is the oldest Go the module builds with, not the
+      # one to test and scan with: use the current supported release.
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: stable
+          check-latest: true
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: vet
@@ -27,3 +30,6 @@ jobs:
         with:
           # Pinned: a new release adds checks and would fail unchanged code.
           version: v2.15.0
+      # Unpinned on purpose: the vulnerability database changes daily.
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
