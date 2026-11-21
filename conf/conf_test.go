@@ -36,14 +36,20 @@ func TestExpandEnv(t *testing.T) {
 	t.Setenv("KIT_A", "alpha")
 	t.Setenv("KIT_EMPTY", "")
 	for in, want := range map[string]string{
-		"$KIT_A":           "alpha",
-		"${KIT_A}":         "alpha",
-		"$KIT_UNSET_XYZ":   "",
-		"Bearer $KIT_A":    "Bearer alpha",
-		"Bearer ${KIT_A}!": "Bearer alpha!",
-		"plain":            "plain",
-		"":                 "",
-		"x-$KIT_EMPTY-y":   "x--y",
+		"$KIT_A":            "alpha",
+		"${KIT_A}":          "alpha",
+		"$KIT_UNSET_XYZ":    "",
+		"Bearer $KIT_A":     "Bearer alpha",
+		"Bearer ${KIT_A}!":  "Bearer alpha!",
+		"plain":             "plain",
+		"":                  "",
+		"x-$KIT_EMPTY-y":    "x--y",
+		"$KIT_A/x":          "alpha/x",
+		"${KIT_A}/x":        "alpha/x",
+		"${KIT_A}-${KIT_A}": "alpha-alpha",
+		"$KIT_A:$KIT_A":     "alpha:alpha",
+		"$":                 "$",     // no name: literal
+		"${KIT_A":           "KIT_A", // unclosed: whatever os.Expand does
 	} {
 		if got := ExpandEnv(in); got != want {
 			t.Errorf("ExpandEnv(%q) = %q, want %q", in, got, want)
@@ -61,6 +67,8 @@ func TestEmptyEnv(t *testing.T) {
 		"Bearer $KIT_A":                   nil,
 		"a $KIT_EMPTY b ${KIT_UNSET_XYZ}": {"KIT_EMPTY", "KIT_UNSET_XYZ"},
 		"plain":                           nil,
+		"$KIT_EMPTY/bin:$KIT_A":           {"KIT_EMPTY"},
+		"${KIT_UNSET_XYZ}/ca.pem":         {"KIT_UNSET_XYZ"},
 	} {
 		if got := EmptyEnv(in); !slices.Equal(got, want) {
 			t.Errorf("EmptyEnv(%q) = %q, want %q", in, got, want)
@@ -76,10 +84,29 @@ func TestParseWindow(t *testing.T) {
 	if _, _, err := ParseWindow(" 04:55 - 05:20 "); err != nil {
 		t.Errorf("spaces: %v", err)
 	}
-	for _, bad := range []string{"", "23:30", "25:00-01:00", "07:00-7pm"} {
+	if s, e, err := ParseWindow("00:00 - 24:00"); err != nil || s != 0 || e != 24*60 {
+		t.Errorf("24:00 end: %d, %d, %v", s, e, err)
+	}
+	for _, bad := range []string{"", "23:30", "25:00-01:00", "07:00-7pm", "24:00-07:00", "22:00-24:01"} {
 		if _, _, err := ParseWindow(bad); err == nil {
 			t.Errorf("%q: no error", bad)
 		}
+	}
+}
+
+func TestFormatWindow(t *testing.T) {
+	for _, w := range []string{"7:05-9:00", " 23:30 - 07:00 ", "00:00-24:00"} {
+		s, e, err := ParseWindow(w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := FormatWindow(s, e)
+		if s2, e2, err := ParseWindow(got); err != nil || s2 != s || e2 != e {
+			t.Errorf("FormatWindow(%q) = %q does not round-trip", w, got)
+		}
+	}
+	if got := FormatWindow(7*60+5, 24*60); got != "07:05-24:00" {
+		t.Errorf("got %q", got)
 	}
 }
 
@@ -98,6 +125,10 @@ func TestInWindow(t *testing.T) {
 		{"23:30-07:00", at(3, 0), true},
 		{"23:30-07:00", at(7, 0), false},
 		{"23:30-07:00", at(12, 0), false},
+		{"00:00-24:00", at(0, 0), true},
+		{"00:00-24:00", at(23, 59), true},
+		{"22:00-24:00", at(23, 59), true},
+		{"22:00-24:00", at(0, 0), false},
 		{"", at(12, 0), false},
 		{"bad", at(12, 0), false},
 	} {

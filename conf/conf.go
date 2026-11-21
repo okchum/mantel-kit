@@ -42,11 +42,12 @@ func (d Duration) Or(def time.Duration) time.Duration {
 	return d.Duration
 }
 
-// ExpandEnv turns "$NAME" or "${NAME}" into the environment value; other
-// strings pass through, with "$NAME" inside them expanded ("Bearer $TOKEN").
+// ExpandEnv expands "$NAME" and "${NAME}" references to environment values
+// wherever they appear: a whole value ("$TOKEN"), a prefix ("$HOME/ca.pem")
+// or inside text ("Bearer $TOKEN"). Unset variables expand to "".
 func ExpandEnv(s string) string {
-	if strings.HasPrefix(s, "$") {
-		return os.Getenv(envName(s))
+	if name, ok := wholeName(s); ok {
+		return os.Getenv(name)
 	}
 	return os.Expand(s, os.Getenv)
 }
@@ -62,20 +63,41 @@ func EmptyEnv(s string) []string {
 		}
 		return ""
 	}
-	if strings.HasPrefix(s, "$") {
-		check(envName(s))
+	if name, ok := wholeName(s); ok {
+		check(name)
 		return names
 	}
 	os.Expand(s, check)
 	return names
 }
 
-// envName is the variable a whole-value "$NAME" or "${NAME}" names.
-func envName(s string) string {
-	return strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(s, "$"), "{"), "}")
+// wholeName reports the variable when all of s is one reference, "$NAME" or
+// "${NAME}" with NAME a shell identifier. Anything else ("$HOME/ca.pem",
+// "${A}-${B}") is left to os.Expand, which expands each reference in place.
+func wholeName(s string) (string, bool) {
+	name, ok := strings.CutPrefix(s, "$")
+	if !ok {
+		return "", false
+	}
+	if inner, ok := strings.CutPrefix(name, "{"); ok {
+		if name, ok = strings.CutSuffix(inner, "}"); !ok {
+			return "", false
+		}
+	}
+	if name == "" {
+		return "", false
+	}
+	for i, r := range name {
+		if r != '_' && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (i == 0 || r < '0' || r > '9') {
+			return "", false
+		}
+	}
+	return name, true
 }
 
-// ParseWindow parses "HH:MM-HH:MM" into minutes since midnight.
+// ParseWindow parses "HH:MM-HH:MM" into minutes since midnight. The end is
+// exclusive and may be "24:00" (end of day), so "00:00-24:00" is the whole
+// day and "22:00-24:00" runs up to midnight.
 func ParseWindow(s string) (start, end int, err error) {
 	a, b, ok := strings.Cut(s, "-")
 	if !ok {
@@ -84,8 +106,17 @@ func ParseWindow(s string) (start, end int, err error) {
 	if start, err = parseHM(a); err != nil {
 		return
 	}
+	if strings.TrimSpace(b) == "24:00" {
+		return start, 24 * 60, nil
+	}
 	end, err = parseHM(b)
 	return
+}
+
+// FormatWindow is the canonical "HH:MM-HH:MM" form of a window ParseWindow
+// returned, for passing to code with a stricter parser (the web page).
+func FormatWindow(start, end int) string {
+	return fmt.Sprintf("%02d:%02d-%02d:%02d", start/60, start%60, end/60, end%60)
 }
 
 func parseHM(s string) (int, error) {
@@ -96,7 +127,8 @@ func parseHM(s string) (int, error) {
 	return t.Hour()*60 + t.Minute(), nil
 }
 
-// InWindow reports whether t's local clock time falls inside the window (wrapping past midnight).
+// InWindow reports whether t's local clock time falls inside the window
+// (start inclusive, end exclusive, wrapping past midnight).
 func InWindow(window string, t time.Time) bool {
 	start, end, err := ParseWindow(window)
 	if err != nil || window == "" {
