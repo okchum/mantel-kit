@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # go.mod's "go" line is the oldest Go the module builds with, not the
       # one to test and scan with: use the current supported release.
       - uses: actions/setup-go@v7
