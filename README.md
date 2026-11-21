@@ -17,3 +17,7 @@ use (
 	./mantel-kit
 )
 ```
+
+## 许可证
+
+[MIT](LICENSE)
